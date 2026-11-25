@@ -53,6 +53,10 @@ var SB_URL='https://ililcjtzafjslishwxmg.supabase.co',SB_KEY='sb_publishable_dLd
 var MASTER=JSON.parse(document.getElementById('skus').textContent),NAMES={};
 MASTER.forEach(function(m){NAMES[m[0]]=m[1]});
 var sb=window.supabase.createClient(SB_URL,SB_KEY);
+var REG={};
+function mapItems(raw){var out=[];(raw||[]).forEach(function(it){var r=REG[sid(it[0])];if(r&&r.ig)return;out.push([r&&r.f?r.f:it[0],it[1]*(r&&r.m>0?r.m:1),it[2]])});return out}
+function mkOrd(id,raw){return {id:id,raw:raw,i:mapItems(raw)}}
+function remap(){Object.keys(S.pend.o).forEach(function(k){var o=S.pend.o[k];o.i=mapItems(o.raw)})}
 var S={stock:{},pend:{o:{}},hechas:{},user:null,loading:true,err:'',tab:'cortar',scan:null,open:{},q:''};
 var app=document.getElementById('app'),nav=document.getElementById('nav');
 function sid(s){return String(s).trim().replace(/[^A-Za-z0-9_\-.~:@+]/g,'_').slice(0,190)||'_'}
@@ -66,9 +70,10 @@ function chk(r){if(r&&r.error)throw r.error;return r}
 async function allRows(table,cols,orderCol){var out=[],from=0;for(;;){var r=chk(await sb.from(table).select(cols).order(orderCol).range(from,from+999));out=out.concat(r.data);if(r.data.length<1000)break;from+=1000}return out}
 async function cargar(){
  try{
-  var r=await Promise.all([allRows('stock','sku,nombre,q,minimo,en_prod','sku'),allRows('pedidos_pend','order_id,items','order_id'),sb.from('ordenes_hechas').select('order_id,items,hecha').order('hecha',{ascending:false}).limit(300)]);
+  var r=await Promise.all([allRows('stock','sku,nombre,q,minimo,en_prod','sku'),allRows('pedidos_pend','order_id,items','order_id'),sb.from('ordenes_hechas').select('order_id,items,hecha').order('hecha',{ascending:false}).limit(300),sb.from('reglas_sku').select('sku,final,mult,ignorar')]);
+  REG={};if(r[3]&&!r[3].error&&r[3].data)r[3].data.forEach(function(x){REG[sid(x.sku)]={f:x.final,m:Number(x.mult)||1,ig:!!x.ignorar}});
   var st={};r[0].forEach(function(x){st[sid(x.sku)]={sku:x.sku,n:x.nombre,q:x.q,min:x.minimo,wip:x.en_prod}});S.stock=st;
-  var po={};r[1].forEach(function(x){po[sid(x.order_id)]={id:x.order_id,i:x.items}});S.pend={o:po};
+  var po={};r[1].forEach(function(x){po[sid(x.order_id)]=mkOrd(x.order_id,x.items)});S.pend={o:po};
   chk(r[2]);var hh={};r[2].data.forEach(function(x){hh[sid(x.order_id)]={id:x.order_id,t:x.hecha,i:x.items}});S.hechas=hh;
   S.err=''}catch(e){S.err='No se pudieron leer los datos: '+(e&&e.message||e)}
  S.loading=false;render()}
@@ -86,8 +91,8 @@ function parseCSV(txt){
  if(txt.charCodeAt(0)===0xFEFF)txt=txt.slice(1);
  var rows=[],row=[],buf='',q=false,i,L=txt.length,ch;
  for(i=0;i<L;i++){ch=txt[i];
-  if(q){if(ch==='"'){if(txt[i+1]==='"'){buf+='"';i++}else q=false}else buf+=ch}
-  else if(ch==='"')q=true;else if(ch===','){row.push(buf);buf=''}
+  if(q){if(ch==='"'){var nx=txt[i+1];if(nx==='"'){buf+='"';i++}else if(nx===undefined||nx===','||nx==='\n'||nx==='\r')q=false;else buf+=ch}else buf+=ch}
+  else if(ch==='"'&&buf==='')q=true;else if(ch===','){row.push(buf);buf=''}
   else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&txt[i+1]==='\n')i++;row.push(buf);buf='';rows.push(row);row=[]}
   else buf+=ch}
  if(buf||row.length){row.push(buf);rows.push(row)}
@@ -106,30 +111,35 @@ function toOrders(rows){
  var ci={o:hd.indexOf('orderid'),q:hd.indexOf('itemqty'),n:hd.indexOf('itemname'),s:hd.indexOf('itemsku')};
  if(ci.o<0||ci.q<0||ci.s<0)return null;
  var map={},seen={};
- for(var r=1;r<rows.length;r++){var w=rows[r],sku=String(w[ci.s]||'').trim().toUpperCase();
-  if(sku.slice(0,2)!=='LS'||sku.slice(0,3)==='LSB'||sku.slice(0,3)==='LSF')continue;
+ for(var r=1;r<rows.length;r++){var w=rows[r],raw0=String(w[ci.s]||'').trim().toUpperCase(),pm=raw0.match(/-P(\d+)$/),sku=raw0.replace(/^MF-/,'').replace(/-P\d+$/,'');
+  var nm0=String(ci.n>=0?w[ci.n]:'');if(!((sku.slice(0,2)==='LS'&&sku.slice(0,3)!=='LSB'&&sku.slice(0,3)!=='LSF')||/laser/i.test(nm0)))continue;
   var oid=String(w[ci.o]||'').trim();if(!oid)continue;
   var key=oid+'|'+sku;if(seen[key])continue;seen[key]=1;
-  var q=Number(w[ci.q]);if(!(q>0))continue;
+  var q=Number(w[ci.q]);if(!(q>0))continue;if(q===1&&pm&&Number(pm[1])>1)q=Number(pm[1]);
   var o=map[oid]=map[oid]||{id:oid,i:[]};o.i.push([sku,q,String(ci.n>=0?w[ci.n]:'').trim().slice(0,70)])}
  return map}
-async function cargarArchivo(file){
+async function cargarArchivo(files){
  try{
-  var rows;
-  if(/\.csv$/i.test(file.name)){rows=fixRows(parseCSV(await file.text()))}
-  else{if(!window.XLSX){toast('No cargó el lector de Excel. Revisa internet.');return}
-   var wb=XLSX.read(await file.arrayBuffer(),{type:'array'});rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''})}
-  if(!rows||rows.length<2){toast('El archivo está vacío.');return}
-  var m=toOrders(rows);if(!m){toast('No encontré las columnas OrderID, ItemQTY e ItemSKU.');return}
+  var m={},k,nf=0;
+  for(k=0;k<files.length;k++){var file=files[k],rows;
+   if(/\.csv$/i.test(file.name)){rows=fixRows(parseCSV(await file.text()))}
+   else{if(!window.XLSX){toast('No cargó el lector de Excel. Revisa internet.');return}
+    var wb=XLSX.read(await file.arrayBuffer(),{type:'array'});rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:''})}
+   if(!rows||rows.length<2)continue;
+   var mm=toOrders(rows);if(!mm){toast('No encontré las columnas OrderID, ItemQTY e ItemSKU en '+file.name);return}
+   nf++;Object.keys(mm).forEach(function(id){if(!m[id])m[id]=mm[id]})}
+  if(!nf){toast('El archivo está vacío.');return}
   var ids=Object.keys(m),hechas={},i;
   for(i=0;i<ids.length;i+=60){var r=chk(await sb.from('ordenes_hechas').select('order_id').in('order_id',ids.slice(i,i+60)));r.data.forEach(function(x){hechas[x.order_id]=1})}
   var nuevas=[],ya=0,hc=0;
   ids.forEach(function(id){if(hechas[id]){hc++;return}if(S.pend.o[sid(id)]){ya++;return}nuevas.push({order_id:id,items:m[id].i})});
   for(i=0;i<nuevas.length;i+=200){chk(await sb.from('pedidos_pend').upsert(nuevas.slice(i,i+200)))}
-  nuevas.forEach(function(x){S.pend.o[sid(x.order_id)]={id:x.order_id,i:x.items}});
+  nuevas.forEach(function(x){S.pend.o[sid(x.order_id)]=mkOrd(x.order_id,x.items)});
   render();toast(nuevas.length+' órdenes nuevas con láser. Ya estaban: '+ya+'. Ya descontadas: '+hc+'.')
  }catch(e){toast('Error: '+(e&&e.message||e))}}
 // ---------- cálculos ----------
+function desconocidos(){var m={};Object.keys(S.pend.o||{}).forEach(function(k){var o=S.pend.o[k];(o.raw||[]).forEach(function(it){var s=it[0],k2=sid(s);if(NAMES[s]||S.stock[k2]||REG[k2])return;var x=m[s]=m[s]||{sku:s,name:it[2]||'',q:0,n:0};x.q+=it[1];x.n++})});return Object.keys(m).map(function(k){return m[k]})}
+async function saveRule(sku,fin,mult,ig){try{chk(await sb.from('reglas_sku').upsert({sku:sku,final:fin,mult:mult,ignorar:!!ig}));REG[sid(sku)]={f:fin,m:mult,ig:!!ig};remap();render();toast(ig?'Listo, lo voy a ignorar.':'Guardado.')}catch(e){toast('No se pudo guardar: '+(e&&e.message||e))}}
 function pendientes(){
  var m={};
  Object.keys(S.pend.o||{}).forEach(function(k){var o=S.pend.o[k];o.i.forEach(function(it){
@@ -142,10 +152,17 @@ function bajoMin(excl){
 // ---------- pantallas ----------
 function vCortar(){
  var P=pendientes(),nOrd=Object.keys(S.pend.o||{}).length,ex={};P.forEach(function(x){ex[x.sku]=1});
- var f=h('input',{type:'file',accept:'.csv,.xlsx,.xls',id:'fup'});f.addEventListener('change',function(){if(f.files[0])cargarArchivo(f.files[0]);f.value=''});
+ var f=h('input',{type:'file',accept:'.csv,.xlsx,.xls',id:'fup',multiple:'multiple'});f.addEventListener('change',function(){if(f.files[0]){var fl=Array.prototype.slice.call(f.files);f.value='';cargarArchivo(fl)}});
  var el=[h('h1',{text:'Qué cortar'}),
   h('label',{class:'btn pri big'},'Subir reporte de ShipWorks',f),
   h('p',{class:'mut',text:nOrd+' órdenes con láser pendientes de despachar. Falta = pedido − stock − en producción.'})];
+ var U=desconocidos();
+ if(U.length){el.push(h('h2',{text:'Revisar ('+U.length+')'}),h('p',{class:'mut',text:'Productos que no reconozco. Dime qué son y lo recuerdo para siempre.'}));
+  U.forEach(function(u){var fi=h('input',{type:'text',value:u.sku,autocapitalize:'characters'}),mi=h('input',{type:'number',value:'1',min:'1',style:'width:80px'});
+   function gu(ig){saveRule(u.sku,fi.value.trim().toUpperCase()||u.sku,Number(mi.value)||1,ig)}
+   el.push(h('div',{class:'card'},h('div',{class:'row'},h('span',{class:'sku',text:u.sku}),h('span',{class:'pill p-warn',text:u.q+' u. en '+u.n+' orden(es)'})),h('div',{class:'nm',text:u.name}),
+    h('div',{class:'row',style:'margin-top:8px'},h('span',{text:'Código final'}),fi),h('div',{class:'row',style:'margin-top:6px'},h('span',{text:'Piezas por unidad'}),mi),
+    h('div',{class:'row',style:'margin-top:8px'},h('button',{class:'pri',text:'Es láser',onclick:function(){gu(false)}}),h('button',{text:'No es láser',onclick:function(){gu(true)}}))))})}
  if(!P.length)el.push(h('div',{class:'card'},h('p',{text:'No hay órdenes pendientes. Sube el reporte de ShipWorks del día.'})));
  P.forEach(function(x){
   var st=x.falta>0?['Cortar ya','p-bad']:(x.dem>x.q?['En producción','p-warn']:['Alcanza','p-ok']);
