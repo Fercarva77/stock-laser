@@ -120,7 +120,7 @@ function toOrders(rows){
  var map={},seen={};
  for(var r=1;r<rows.length;r++){var w=rows[r],raw0=String(w[ci.s]||'').trim().toUpperCase(),pm=raw0.match(/-P(\d+)$/),sku=raw0.replace(/^MF-/,'').replace(/-P\d+$/,'');
   var nm0=String(ci.n>=0?w[ci.n]:'');if(!((sku.slice(0,2)==='LS'&&sku.slice(0,3)!=='LSB'&&sku.slice(0,3)!=='LSF')||/laser/i.test(nm0)))continue;
-  var oid=String(w[ci.o]||'').trim();if(!oid)continue;
+  var oid=String(w[ci.o]||'').trim().split(/\s+/)[0];if(!oid)continue;
   var key=oid+'|'+sku;if(seen[key])continue;seen[key]=1;
   var q=Number(w[ci.q]);if(!(q>0))continue;if(q===1&&pm&&Number(pm[1])>1)q=Number(pm[1]);
   var o=map[oid]=map[oid]||{id:oid,i:[]};o.i.push([sku,q,String(ci.n>=0?w[ci.n]:'').trim().slice(0,70)])}
@@ -199,7 +199,7 @@ function decode(img){
 function findOrder(code){
  code=String(code).trim();var o=S.pend.o||{};if(o[sid(code)])return o[sid(code)];
  var lc=code.toLowerCase(),ks=Object.keys(o);
- for(var i=0;i<ks.length;i++){if(o[ks[i]].id.toLowerCase()===lc)return o[ks[i]]}
+ for(var i=0;i<ks.length;i++){if(String(o[ks[i]].id).trim().split(/\s+/)[0].toLowerCase()===lc)return o[ks[i]]}
  return null}
 async function buscar(code){
  code=String(code||'').trim();if(!code){toast('Escribe o escanea un número de orden.');return}
