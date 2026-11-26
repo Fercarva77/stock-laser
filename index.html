@@ -35,6 +35,8 @@ button,.btn{font:inherit;cursor:pointer;border:1px solid var(--line);background:
 input[type=file]{position:absolute;opacity:0;width:1px;height:1px}
 input[type=text],textarea{font:inherit;width:100%;border:1px solid var(--line);background:var(--bg);color:var(--fg);border-radius:8px;padding:10px}
 textarea{min-height:110px;font-family:var(--mono);font-size:.85rem}
+.th{width:64px;height:64px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid var(--line);flex:none}
+.prod{display:flex;gap:10px;align-items:center;min-width:0}
 .qty{width:84px;text-align:right;font-family:var(--mono)}
 nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding:6px max(8px,env(safe-area-inset-right,0px)) calc(6px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px));gap:6px}
 nav button{flex:1;border:0;background:transparent;padding:10px 4px;font-size:.85rem;font-weight:600;color:var(--mut);border-radius:8px}
@@ -60,6 +62,12 @@ var SB_URL='https://ililcjtzafjslishwxmg.supabase.co',SB_KEY='sb_publishable_dLd
 var MASTER=JSON.parse(document.getElementById('skus').textContent),NAMES={};
 MASTER.forEach(function(m){NAMES[m[0]]=m[1]});
 var sb=window.supabase.createClient(SB_URL,SB_KEY);
+var FOT=null;
+function fotoSrc(sku){if(!FOT)return null;var k=String(sku).toUpperCase().trim(),i=FOT.m[k];if(i===undefined){var p=k.split('-');while(p.length>1&&i===undefined){p.pop();var q=p.join('-');if(FOT.a[q]!==undefined)i=FOT.a[q];else if(FOT.m[q]!==undefined)i=FOT.m[q]}}
+ return i===undefined?null:'data:image/jpeg;base64,'+FOT.i[i]}
+function th(sku){var u=fotoSrc(sku);return u?h('img',{class:'th',src:u,alt:'',loading:'lazy'}):null}
+function prod(sku,nm){var t=th(sku);return t?h('div',{class:'prod'},t,nm):nm}
+function cargarFotos(){fetch('fotos.json').then(function(r){return r.ok?r.json():null}).then(function(j){if(j&&j.m){FOT=j;render()}}).catch(function(){})}
 var REG={};
 function mapItems(raw){var out=[];(raw||[]).forEach(function(it){var r=REG[sid(it[0])];if(r&&r.ig)return;out.push([r&&r.f?r.f:it[0],it[1]*(r&&r.m>0?r.m:1),it[2]])});return out}
 function mkOrd(id,raw){return {id:id,raw:raw,i:mapItems(raw)}}
@@ -175,14 +183,14 @@ function vCortar(){
   var st=x.falta>0?['Cortar ya','p-bad']:(x.dem>x.q?['En producción','p-warn']:['Alcanza','p-ok']);
   var c=h('div',{class:'card'},
    h('div',{class:'row'},h('span',{class:'sku',text:x.sku}),h('span',{class:'pill '+st[1],text:st[0]})),
-   h('div',{class:'nm',text:x.n}),
+   prod(x.sku,h('div',{class:'nm',text:x.n})),
    h('div',{class:'nums'},h('span',{},'Piden ',h('b',{text:fmt(x.dem)})),h('span',{},'Tienes ',h('b',{text:fmt(x.q)})),h('span',{},'En prod. ',h('b',{text:fmt(x.wip)})),h('span',{},'Falta ',h('b',{text:fmt(x.falta)}))),
    h('button',{style:'margin-top:8px;padding:6px 10px;font-size:.85rem',text:S.open[x.sku]?'Ocultar órdenes':'Ver órdenes',onclick:function(){S.open[x.sku]=!S.open[x.sku];render()}}));
   if(S.open[x.sku]){var d=h('div',{class:'det'});x.ords.forEach(function(o){d.appendChild(h('div',{class:'row'},h('span',{class:'sku',text:o[0]}),h('span',{text:o[1]+' u.'})))});c.appendChild(d)}
   el.push(c)});
  var B=bajoMin(ex);
  if(B.length){el.push(h('h2',{text:'Bajo el mínimo (sin órdenes)'}));B.forEach(function(x){
-  el.push(h('div',{class:'card'},h('div',{class:'row'},h('span',{class:'sku',text:x.sku}),h('span',{class:'pill p-warn',text:'Faltan '+fmt(x.need)})),h('div',{class:'nm',text:x.n}),
+  el.push(h('div',{class:'card'},h('div',{class:'row'},h('span',{class:'sku',text:x.sku}),h('span',{class:'pill p-warn',text:'Faltan '+fmt(x.need)})),prod(x.sku,h('div',{class:'nm',text:x.n})),
    h('div',{class:'nums'},h('span',{},'Tienes ',h('b',{text:fmt(x.q)})),h('span',{},'En prod. ',h('b',{text:fmt(x.wip)})),h('span',{},'Mínimo ',h('b',{text:fmt(x.min)})))))})}
  if(nOrd){el.push(h('button',{text:S.confVaciar?'¿Seguro? Toca otra vez para vaciar':'Vaciar órdenes pendientes',onclick:async function(){
    if(!S.confVaciar){S.confVaciar=true;render();return}S.confVaciar=false;try{chk(await sb.from('pedidos_pend').delete().neq('order_id',''));S.pend={o:{}};render()}catch(e){toast('No se pudo vaciar')}}}))}
@@ -236,7 +244,7 @@ function vEscanear(){
   else if(s.order){var o=s.order,ag={},neg=false;o.i.forEach(function(it){ag[it[0]]=(ag[it[0]]||0)+it[1]});
    var tb=h('table',{},h('thead',{},h('tr',{},h('th',{text:'Producto'}),h('th',{class:'n',text:'Pide'}),h('th',{class:'n',text:'Stock'}),h('th',{class:'n',text:'Queda'}))));var tbd=h('tbody');
    Object.keys(ag).forEach(function(sku){var q=cur(sku).q||0,after=q-ag[sku];if(after<0)neg=true;
-    tbd.appendChild(h('tr',{},h('td',{},h('div',{class:'sku',text:sku}),h('div',{class:'nm',text:nameOf(sku)})),h('td',{class:'n',text:fmt(ag[sku])}),h('td',{class:'n'},stk(sku,q)),h('td',{class:'n',style:after<0?'color:var(--bad);font-weight:700':'',text:fmt(after)})))});
+    tbd.appendChild(h('tr',{},h('td',{},h('div',{class:'sku',text:sku}),prod(sku,h('div',{class:'nm',text:nameOf(sku)}))),h('td',{class:'n',text:fmt(ag[sku])}),h('td',{class:'n'},stk(sku,q)),h('td',{class:'n',style:after<0?'color:var(--bad);font-weight:700':'',text:fmt(after)})))});
    tb.appendChild(tbd);
    el.push(h('div',{class:'card'},h('div',{class:'row'},h('span',{class:'sku',text:'Orden '+o.id}),h('span',{class:'pill p-ok',text:Object.keys(ag).length+' prod. láser'})),h('div',{class:'sc',style:'margin-top:8px'},tb),
     h('p',{class:'mut',style:'margin-top:8px',text:'Puedes corregir el Stock aquí mismo: pon lo que tenías antes de sacar las piezas de esta orden.'}),
@@ -270,7 +278,7 @@ function vStock(){
    i.addEventListener('focus',function(){i.select()});
    i.addEventListener('change',function(){var v=parseInt(i.value.replace(/[^\d-]/g,''),10);if(isNaN(v)){i.value=String(val||0);return}fn(v).then(function(){toast(sku+' guardado')}).catch(function(){i.value=String(val||0);toast('No se pudo guardar')})});return i}
   el.push(h('div',{class:'card'},h('div',{class:'row'},h('span',{class:'sku',text:sku}),num(c.q,function(v){return saveStock(sku,{q:v},'ajuste manual')},'Stock')),
-   h('div',{class:'nm',text:m[1]}),
+   prod(sku,h('div',{class:'nm',text:m[1]})),
    h('div',{class:'row',style:'margin-top:8px'},h('span',{class:'mut',text:'Mínimo'}),num(c.min,function(v){return saveStock(sku,{min:v},'',true)},'Mínimo')),
    h('div',{class:'row',style:'margin-top:6px'},h('span',{class:'mut',text:'En producción'}),num(c.wip,function(v){return saveStock(sku,{wip:v},'',true)},'En producción')),
    (c.wip>0)?h('button',{style:'margin-top:8px',text:'Ya se cortaron: sumar '+fmt(c.wip)+' al stock',onclick:function(){saveStock(sku,{q:(c.q||0)+c.wip,wip:0},'cortado').then(render).catch(function(){toast('No se pudo guardar')})}}):null))});
@@ -303,7 +311,7 @@ function vHistorial(){
 function vLogin(){
  var em=h('input',{type:'text',id:'em',placeholder:'Correo',autocomplete:'username',autocapitalize:'none'}),pw=h('input',{type:'password',id:'pw',placeholder:'Clave',autocomplete:'current-password'}),msg=h('p',{class:'mut',text:S.err||''});
  async function go(){msg.textContent='Entrando…';var r=await sb.auth.signInWithPassword({email:em.value.trim(),password:pw.value});
-  if(r.error){msg.textContent='No se pudo entrar. Revisa el correo y la clave.';return}S.user=r.data.user;S.err='';S.loading=true;render();cargar()}
+  if(r.error){msg.textContent='No se pudo entrar. Revisa el correo y la clave.';return}S.user=r.data.user;cargarFotos();S.err='';S.loading=true;render();cargar()}
  pw.addEventListener('keydown',function(e){if(e.key==='Enter')go()});
  return [h('div',{class:'login'},h('h1',{text:'Stock Láser'}),em,pw,h('button',{class:'pri big',text:'Entrar',onclick:go}),msg)]}
 var TABS=[['cortar','Cortar'],['escanear','Escanear'],['stock','Stock'],['historial','Historial']];
@@ -320,7 +328,7 @@ function render(){
  v.forEach(function(x){app.appendChild(x)})}
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&S.user)cargar()});
 render();
-sb.auth.getSession().then(function(r){var s=r.data&&r.data.session;if(s){S.user=s.user;cargar()}else{S.loading=false;render()}}).catch(function(){S.loading=false;render()});
+sb.auth.getSession().then(function(r){var s=r.data&&r.data.session;if(s){S.user=s.user;cargar();cargarFotos()}else{S.loading=false;render()}}).catch(function(){S.loading=false;render()});
 })();
 </script>
 </body></html>
